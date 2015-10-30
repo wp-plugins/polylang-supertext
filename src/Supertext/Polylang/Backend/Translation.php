@@ -31,7 +31,7 @@ class Translation
     add_action('add_meta_boxes', array($this, 'addLogInfoMetabox'));
 
     // Only autosave translation if necessary
-    if ($_GET['translation-service'] == 1) {
+    if (isset($_GET['translation-service']) && $_GET['translation-service'] == 1) {
       add_filter('default_title', array($this, 'filterTranslatingPost'), 10, 2);
     }
 
@@ -108,7 +108,7 @@ class Translation
     if (isset($_GET['post']) && isset($_GET['action'])) {
       $translatedPost = get_post($_GET['post']);
       $orderIdList = get_post_meta($translatedPost->ID, Log::META_ORDER_ID, true);
-      $orderId = end($orderIdList);
+      $orderId = is_array($orderIdList) ? end($orderIdList) : 0;
 
       // Show info if there is an order and the article is not translated yet
       if (intval($orderId) > 0 && $translatedPost->post_title == self::IN_TRANSLATION_TEXT) {

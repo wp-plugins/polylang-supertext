@@ -65,7 +65,7 @@ class Wrapper
   public static function getInstance($user = Constant::DEFAULT_API_USER, $apikey = '', $currency = 'eur')
   {
     // Open connection for every user
-    if (self::$apiConnections[$user] === null) {
+    if (!isset(self::$apiConnections[$user])) {
       self::$apiConnections[$user] = new self($user, $apikey, $currency);
     }
     return self::$apiConnections[$user];
@@ -82,7 +82,7 @@ class Wrapper
     $result = array();
     if (!empty($json->Languages)) {
       foreach ($json->Languages as $entry) {
-        $result[(string)$entry->Iso] = (string)$entry->Name;
+        $result[(string)$entry->Code] = (string)$entry->Name;
       }
     } else {
       echo '
@@ -112,30 +112,30 @@ class Wrapper
 
     $httpresult = $this->postRequest('translation/quote', json_encode($json), true);
     $json = json_decode($httpresult);
-    $result = array();
+    $result = array(
+        'currency' => $json->Currency,
+        'currencyName' => $json->CurrencySymbol,
+        'options' => array()
+    );
 
     if (!empty($json->Options)) {
       foreach ($json->Options as $o) {
-        foreach ($o->DeliveryOptions as $do) {
-          $result[$o->OrderTypeId . ':' . $do->DeliveryId] = array(
-            'name' => $o->Name . ' in ' . $do->Name,
-            'currency' => $o->Currency,
-            'price' => $do->Price,
-            'date' => $do->DeliveryDate
-          );
-        }
-      }
+        $deliveryOptions = array();
 
-      // Also add the currency and name
-      $result['currency'] = $json->Currency;
-      $result['currencyName'] = $json->CurrencySymbol;
-    } else {
-      // Provide user message
-      echo '
-        <div id="message" class="updated fade">
-          <p>' . __('Error while communicating with Supertext. We couldn\'t find any offers. Please try again later.', 'polylang-supertext') . '</p>
-        </div>
-      ';
+        foreach ($o->DeliveryOptions as $do) {
+          $deliveryOptions[] = array(
+              'id' => $do->DeliveryId,
+              'name' => $do->Name,
+              'price' =>  $do->Price,
+              'date' =>  $do->DeliveryDate);
+        }
+
+        $result['options'][] = array(
+            'id' => $o->OrderTypeId,
+            'name' => $o->Name,
+            'items' => $deliveryOptions
+        );
+      }
     }
 
     return $result;

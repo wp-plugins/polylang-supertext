@@ -1,12 +1,11 @@
 <?php
 use Supertext\Polylang\Helper\Constant;
-use Supertext\Polylang\Settings\Page;
 use Comotive\Util\ArrayManipulation;
 
 /** @var Page $context */
 $library = $context->getCore()->getLibrary();
 $options = $library->getSettingOption();
-$userMap = ArrayManipulation::forceArray($options[Constant::SETTING_USER_MAP]);
+$userMap = isset($options[Constant::SETTING_USER_MAP]) ? ArrayManipulation::forceArray($options[Constant::SETTING_USER_MAP]) : array();
 
 // Get all users
 $wpUsers = get_users();
@@ -25,90 +24,80 @@ foreach ((array) $userList as $user) {
 
 // Generate select template
 $selectTemplate = '' .
-  '<select name=\'selStWpUsers[]\' id=\'selStWpUsers\'>' .
-    '<option value=\'0\'>Benutzer wählen</option>' .
+  '<select name=\'selStWpUsers[]\'>' .
+    '<option value=\'\'>'.__('Select user', 'polylang-supertext').'...</option>' .
     $userOptions .
   '</select>';
 
 ?>
-<input type="hidden" name="supertext_select_user" id="supertext_select_user" value="<?php echo $selectTemplate; ?>">
-<input type="hidden" name="supertext_file_path" id="supertext_file_path" value="<?php echo SUPERTEXT_POLYLANG_RESOURCE_URL; ?>">
 
 <div class="postbox postbox_admin">
   <div id="frmSupertext" class="inside frmServiceSupertextConfig">
     <h3><?php _e('Supertext Accounts', 'polylang-supertext'); ?></h3>
+    <p>
+      <?php
+      $url = 'https://www.supertext.ch/de/signup';
+      echo sprintf( wp_kses( __("You need at least one Supertext Account. You can sign up <a href=\"%s\">here</a>.", 'polylang-supertext'), array(  'a' => array( 'href' => array() ) ) ), esc_url( $url ) );
+      ?>
+    </p>
+    <p>
+      <?php _e('Please fill in a Supertext API key for every WordPress user.', 'polylang-supertext'); ?><br>
+      <?php _e('Only configured users can make use of the translation features.', 'polylang-supertext'); ?>
+    </p>
+
     <table id="tblStFields">
       <thead>
         <tr>
-          <td colspan="5">
-            <?php _e('Please fill in a supertext API key for every WordPress user.', 'polylang-supertext'); ?><br>
-            <?php _e('Only configured users can make use of the translation features.', 'polylang-supertext'); ?><br><br>
-          </td>
-        </tr>
-        <tr>
-          <td><strong>Wordpress <?php _e('User', 'polylang-supertext'); ?></strong></td>
-          <td><strong>Supertext <?php _e('User', 'polylang-supertext'); ?></strong></td>
-          <td colspan="2"><strong><?php _e('API-Key', 'polylang-supertext'); ?></strong></td>
+          <th>Wordpress <?php _e('User', 'polylang-supertext'); ?></th>
+          <th>Supertext <?php _e('User', 'polylang-supertext'); ?></th>
+          <th colspan="2"><?php _e('API-Key', 'polylang-supertext'); ?></th>
         </tr>
       </thead>
       <tbody>
 <?php
-
-// Add five empty ones, if there are no settings yet
-if (count($userMap) == 0) {
-  for ($i = 0; $i < 5; $i++) {
-    $userMap[] = array(
-      'wpUser' => '',
-      'stUser' => '',
-      'stApi' => ''
-    );
-  }
-}
-
 // Select correct dropdown value for WP User
-$index = 0;
+
 $selectedWpUsers = '';
 $deleteUser = __('Delete user', 'polylang-supertext');
 $addUser = __('Add user', 'polylang-supertext');
+$additionalEmptyUserRows = 1;
 
+// Add five empty user rows, if there are no settings yet
+if (count($userMap) == 0) {
+  $additionalEmptyUserRows = 5;
+}
+
+for ($i = 0; $i < $additionalEmptyUserRows; $i++) {
+  $userMap[] = array(
+    'wpUser' => '',
+    'stUser' => '',
+    'stApi' => ''
+  );
+}
 
 foreach ($userMap as $userConfig) {
-  $index++;
-  $selectedWpUsers .= intval($userConfig['wpUser']) . ', ';
-
-  echo '
-    <tr id="trSupertext_' . $index . '">
+  echo '<tr>
       <td>
         ' . $selectTemplate . '
+        <input type="hidden" class="saved-user-id-hidden" value="'. $userConfig['wpUser'].'" />
       </td>
       <td>
-        <input type="text" name="fieldStUser[]" id="field_st_user_' . $index . '" value="' . $userConfig['stUser'] . '" style="width: 200px">
+        <input type="text" name="fieldStUser[]" value="' . $userConfig['stUser'] . '" style="width: 200px">
       </td>
       <td>
-        <input type="text" name="fieldStApi[]" id="field_st_api_' . $index . '" value="' . $userConfig['stApi'] . '" style="width: 200px">
+        <input type="text" name="fieldStApi[]" value="' . $userConfig['stApi'] . '" style="width: 200px">
       </td>
       <td>
-        <img src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/delete.png" alt="" title="' . $deleteUser . '" onclick="javascript: Remove_StField(' . $index . ');">
+        <img class="remove-user-button" src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/delete.png" alt="" title="' . $deleteUser . '">
       </td>
-    </tr>
-  ';
+    </tr>';
 }
 
 echo '
       </tbody>
       </table>
       <br />
-      <input class="button button-highlighted" type="button" name="buAddField_' . $index . '" id="buAddField_' . $index . '" value="' . $addUser . '" onclick="javascript: Add_StField(' . $i . ');">
+      <input class="button button-highlighted" type="button" id="btnAddUser" value="' . $addUser . '" >
     </div>
   </div>';
-
-if (strlen($selectedWpUsers) > 0) {
-  $selectedWpUsers = substr($selectedWpUsers, 0, -2);
-}
-
 ?>
-<script type="text/javascript">
-  jQuery(document).ready(function() {
-    set_selects_indexes([<?php echo $selectedWpUsers; ?>]);
-  });
-</script>
