@@ -2,8 +2,10 @@
 
 namespace Supertext\Polylang\Settings;
 
+use Comotive\Util\WordPress;
 use Supertext\Polylang\Api\Multilang;
 use Supertext\Polylang\Helper\AcfCustomFieldProvider;
+use Supertext\Polylang\Helper\YoastCustomFieldProvider;
 use Supertext\Polylang\Helper\Constant;
 
 /**
@@ -20,41 +22,58 @@ class SettingsPage extends AbstractPage
   {
     parent::__construct();
 
-    //Tabs definitions
-    $this->tabs = array(
-
-      'users' => array(
-        'name' => __("Users and languages", 'polylang-supertext'),
-        'views' => array(
-          'backend/settings-users',
-          'backend/settings-languages'
-        ),
-        'saveFunction' => 'saveUserAndLanguageSettings'
+    // Tabs definitions
+    $this->tabs = array();
+    // First settings page with user funtions
+    $this->tabs['users'] = array(
+      'name' => __('User and languages', 'polylang-supertext'),
+      'views' => array(
+        'backend/settings-users',
+        'backend/settings-languages'
       ),
-      //Not available as long not implemented on order page
-      /*
-      'customfields' => array(
-        'name' => __("Custom Fields", 'polylang-supertext'),
+      'saveFunction' => 'saveUserAndLanguageSettings'
+    );
+
+    // Add all possible custom field provides
+    $this->registerCustomFieldProviders();
+
+    // If there are providers, make the tab appear
+    if (count($this->customFieldsProviders) > 0) {
+      $this->tabs['customfields'] = array(
+        'name' => __('Custom fields', 'polylang-supertext'),
         'views' => array(
           'backend/settings-custom-fields'
         ),
         'saveFunction' => 'saveCustomFieldsSettings'
+      );
+    }
+
+    // finally, add shortcodes
+     $this->tabs['shortcodes'] = array(
+      'name' => __('Shortcodes', 'polylang-supertext'),
+      'views' => array(
+        'backend/settings-shortcodes'
       ),
-      */
-      'shortcodes' => array(
-        'name' => __("Shortcodes", 'polylang-supertext'),
-        'views' => array(
-          'backend/settings-shortcodes'
-        ),
-        'saveFunction' => 'saveShortcodesSettings'
-      )
-
+      'saveFunction' => 'saveShortcodesSettings'
     );
+  }
 
-    //Add class to support custom fields of other plugins
-    $this->customFieldsProviders = array(
-      new AcfCustomFieldProvider()
-    );
+  /**
+   * Register all plugins that are supported
+   */
+  protected function registerCustomFieldProviders()
+  {
+    $this->customFieldsProviders = array();
+
+    // Support for advanced custom fields pro
+    if (WordPress::isPluginActive('advanced-custom-fields/acf.php') || WordPress::isPluginActive('advanced-custom-fields-pro/acf.php') ) {
+      $this->customFieldsProviders[] = new AcfCustomFieldProvider();
+    }
+
+    // Support vor WP SEO by Yoast
+    if (WordPress::isPluginActive('wordpress-seo/wp-seo.php')) {
+      $this->customFieldsProviders[] = new YoastCustomFieldProvider();
+    }
   }
 
   /**
@@ -69,7 +88,7 @@ class SettingsPage extends AbstractPage
     // Display the page with typical entry infos
     echo '
       <div class="wrap">
-        <h2>' . __('Settings › Supertext API', 'polylang-supertext') . '</h2>
+        <h2>' . __('Settings › Supertext', 'polylang-supertext') . '</h2>
         ' . $this->showSystemMessage() . '
         ' . $this->addTabs($currentTabId);
 
@@ -111,7 +130,7 @@ class SettingsPage extends AbstractPage
         'id' => $customFieldsProvider->getPluginName(),
         'label' => $customFieldsProvider->getPluginName(),
         'type' => 'plugin',
-        'field_definitions' => $customFieldsProvider->getCustomFieldDefinitions()
+        'sub_field_definitions' => $customFieldsProvider->getCustomFieldDefinitions()
       );
     }
 
@@ -123,7 +142,6 @@ class SettingsPage extends AbstractPage
    */
   protected function addResources()
   {
-    wp_enqueue_style(Constant::STYLE_HANDLE);
     wp_enqueue_style(Constant::JSTREE_STYLE_HANDLE);
     wp_enqueue_script(Constant::SETTINGS_SCRIPT_HANDLE);
     wp_enqueue_script(Constant::JSTREE_SCRIPT_HANDLE);
@@ -262,12 +280,12 @@ class SettingsPage extends AbstractPage
       $currentFieldDefinitions = $customFieldDefinitions;
 
       while (($field = array_shift($currentFieldDefinitions))) {
-        if (in_array($field['id'], $checkedCustomFieldIds) && isset($field['meta_key'])) {
+        if (in_array($field['id'], $checkedCustomFieldIds) && isset($field['meta_key_regex'])) {
           $fieldDefinitionsToSave[] = $field;
         }
 
-        if ($field['field_definitions'] > 0) {
-          $currentFieldDefinitions = array_merge($currentFieldDefinitions, $field['field_definitions']);
+        if ($field['sub_field_definitions'] > 0) {
+          $currentFieldDefinitions = array_merge($currentFieldDefinitions, $field['sub_field_definitions']);
         }
       }
     }

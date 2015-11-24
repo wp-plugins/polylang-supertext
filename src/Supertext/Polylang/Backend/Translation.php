@@ -1,6 +1,7 @@
 <?php
 
 namespace Supertext\Polylang\Backend;
+
 use Comotive\Helper\Metabox;
 use Comotive\Util\Date;
 use Supertext\Polylang\Core;
@@ -14,14 +15,23 @@ use Supertext\Polylang\Helper\Constant;
 class Translation
 {
   /**
+   * @var string the translation column id
+   */
+  const TRANSLATION_STATUS_COLUMN = 'translation-status';
+  /**
    * @var string the text that marks a post as "in translation"
    */
   const IN_TRANSLATION_TEXT = '[in Translation...]';
+  /**
+   * @var string the flag that sets a post in translation
+   */
+  const IN_TRANSLATION_FLAG = '_in_st_translation';
   /**
    * Various filters to change and/or display things
    */
   public function __construct()
   {
+
     add_action('admin_init', array($this, 'addBackendAssets'));
     add_action('admin_notices', array($this, 'showInTranslationMessage'));
     add_action('current_screen', array($this, 'addScreenbasedAssets'));
@@ -30,74 +40,14 @@ class Translation
     add_action('media_upload_gallery', array($this, 'disableGalleryInputs'));
     add_action('add_meta_boxes', array($this, 'addLogInfoMetabox'));
 
-    // Only autosave translation if necessary
-    if (isset($_GET['translation-service']) && $_GET['translation-service'] == 1) {
-      add_filter('default_title', array($this, 'filterTranslatingPost'), 10, 2);
-    }
+    add_filter('manage_posts_columns', array($this, 'addTranslationStatusColumn'), 100);
+    add_action('manage_posts_custom_column', array($this, 'displayTranslationStatusColumn'), 12, 2);
+    add_filter('manage_pages_columns', array($this, 'addTranslationStatusColumn'), 100);
+    add_action('manage_pages_custom_column', array($this, 'displayTranslationStatusColumn'), 12, 2);
 
     // Load translations
     load_plugin_textdomain('polylang-supertext', false, 'polylang-supertext/resources/languages');
     load_plugin_textdomain('polylang-supertext-langs', false, 'polylang-supertext/resources/languages');
-  }
-
-  /**
-   * Directly save a new post in translation and redirect to edit screen
-   * @param $postContent the post content
-   * @param $post the post object
-   * @return string the title (1:1, if not a translating post
-   */
-  public function filterTranslatingPost($postContent, $post)
-  {
-    // Set state to prevent override the title attribute with emtpy (default state: auto-draft)
-    $post->post_status = 'draft';
-
-    // Go trough post data and add translation text value
-    foreach ($_POST as $field_name => $field_value) {
-      $field_name_parts = explode('_', $field_name);
-      // Fields with text definition
-      if ($field_name_parts[0] == 'to') {
-        switch ($field_name_parts[1]) {
-          case 'post':
-            switch ($field_name_parts[2]) {
-              case 'image':
-                // Set all images to default
-                $attachments = get_children(array('post_parent' => $post->ID, 'post_type' => 'attachment', 'orderby' => 'menu_order ASC, ID', 'order' => 'DESC'));
-                foreach ($attachments as $attachement_post) {
-                  $attachement_post->post_title = self::IN_TRANSLATION_TEXT;
-                  $attachement_post->post_content = self::IN_TRANSLATION_TEXT;
-                  $attachement_post->post_excerpt = self::IN_TRANSLATION_TEXT;
-                  // Update meta and update attachmet post
-                  update_post_meta($attachement_post->ID, '_wp_attachment_image_alt', addslashes(self::IN_TRANSLATION_TEXT));
-                  wp_update_post($attachement_post);
-                }
-                break;
-
-              default:
-                // Translate a wp defualt field
-                $post->{'post_' . $field_name_parts[2]} = self::IN_TRANSLATION_TEXT;
-                break;
-            }
-            break;
-
-          case 'excerpt':
-            // Falls Service mit Feature (ShareArticle)
-            update_post_meta($post->ID, '_excerpt_' . $field_name_parts[2], self::IN_TRANSLATION_TEXT);
-            update_post_meta($post->ID, '_modified_excerpt_' . $field_name_parts[2], 1);
-            break;
-
-          default:
-            break;
-        }
-      }
-    }
-
-    // Save the changed post
-    // A JS listeing to translation-service=1 will automatically save the new translation
-    wp_update_post($post);
-    Core::getInstance()->getLog()->addEntry($post->ID, __('The translatable article has been created.', 'polylang-supertext'));
-
-    // Return the same untouched title, if nothing should happen
-    return $post->post_title;
   }
 
   /**
@@ -106,12 +56,11 @@ class Translation
   public function showInTranslationMessage()
   {
     if (isset($_GET['post']) && isset($_GET['action'])) {
-      $translatedPost = get_post($_GET['post']);
-      $orderIdList = get_post_meta($translatedPost->ID, Log::META_ORDER_ID, true);
-      $orderId = is_array($orderIdList) ? end($orderIdList) : 0;
+      $translationPost = get_post(intval($_GET['post']));
+      $orderId = $this->getOrderId($translationPost, true);
 
       // Show info if there is an order and the article is not translated yet
-      if (intval($orderId) > 0 && $translatedPost->post_title == self::IN_TRANSLATION_TEXT) {
+      if (intval($orderId) > 0 && get_post_meta($translationPost->ID, Translation::IN_TRANSLATION_FLAG, true) == 1) {
         echo '
           <div class="updated">
             <p>' .  sprintf(__('The article was sent to Supertext and is now being translated. Your order number is %s.', 'polylang-supertext'), intval($orderId)) . '</p>
@@ -122,28 +71,29 @@ class Translation
   }
 
   /**
+   * @param \WP_Post $translationPost the translated post
+   * @return int $orderId
+   */
+  public function getOrderId($translationPost)
+  {
+    $orderIdList = get_post_meta($translationPost->ID, Log::META_ORDER_ID, true);
+    $orderId = is_array($orderIdList) ? end($orderIdList) : 0;
+
+    return $orderId;
+  }
+
+  /**
    * Only includes resources for post translation management
    * @param \WP_Screen $screen the screen shown
    */
   public function addScreenbasedAssets($screen)
   {
-    if ($screen->base == 'post' && ($_GET['action'] == 'edit' || $_GET['translation-service'] == 1)) {
+    if ($screen->base == 'post' && ($_GET['action'] == 'edit')) {
       // SCripts to inject translation
-      wp_enqueue_script(
-        'supertext-translation-library',
-        SUPERTEXT_POLYLANG_RESOURCE_URL . '/scripts/translation-library.js',
-        array('jquery', 'supertext-global-library'),
-        SUPERTEXT_PLUGIN_REVISION,
-        true
-      );
+      wp_enqueue_script(Constant::TRANSLATION_SCRIPT_HANDLE);
 
       // Styles for post backend and offer page
-      wp_enqueue_style(
-        'supertext-post-style',
-        SUPERTEXT_POLYLANG_RESOURCE_URL . '/styles/post.css',
-        array(),
-        SUPERTEXT_PLUGIN_REVISION
-      );
+      wp_enqueue_style(Constant::POST_STYLE_HANDLE);
     }
   }
 
@@ -152,13 +102,8 @@ class Translation
    */
   public function addBackendAssets()
   {
-    wp_enqueue_script(
-      'supertext-global-library',
-      SUPERTEXT_POLYLANG_RESOURCE_URL . '/scripts/global-library.js',
-      array('jquery'),
-      SUPERTEXT_PLUGIN_REVISION,
-      false
-    );
+    wp_enqueue_style(Constant::STYLE_HANDLE);
+    wp_enqueue_script(Constant::GLOBAL_SCRIPT_HANDLE);
   }
 
   /**
@@ -173,15 +118,15 @@ class Translation
           addNewUser : "' . esc_js(__('Add user', 'polylang-supertext')) . '",
           inTranslationText : "' . esc_js(self::IN_TRANSLATION_TEXT) . '",
           deleteUser : "' . esc_js(__('Delete user', 'polylang-supertext')) . '",
-          translationCreation : "' . esc_js(__('Translation is being initialized. Please wait a second.', 'polylang-supertext')) . '",
-          generalError : "' . esc_js(__('An error occured.', 'polylang-supertext')) . '",
-          offerTranslation : "' . esc_js(__('Order article translation', 'polylang-supertext')) . '",
+          translationCreation : "' . esc_js(__('Translation is being initialized. Please wait a moment.', 'polylang-supertext')) . '",
+          generalError : "' . esc_js(__('An error occurred.', 'polylang-supertext')) . '",
+          offerTranslation : "' . esc_js(__('Order translation', 'polylang-supertext')) . '",
           translationOrderError : "' . esc_js(__('The order couldn\'t be sent to Supertext. Please try again.', 'polylang-supertext')) . '",
-          confirmUnsavedArticle : "' . esc_js(__('The article wasn\'t saved. If you proceed with the translation, the unsaved changes are lost.', 'polylang-supertext')) . '",
-          alertUntranslatable : "' . esc_js(__('The article can\'t be translated, because it has an unfinished translation task. Please use the original article to order a translation.', 'polylang-supertext')) . '",
-          offerConfirm_Price : "' . esc_js(__('You order a translation until {deadline}, for the price of {price}.', 'polylang-supertext')) . '",
-          offerConfirm_Binding : "' . esc_js(__('This translation order is obliging.', 'polylang-supertext')) . '",
-          offerConfirm_EmailInfo : "' . esc_js(__('You will be informed by e-mail as soon as the translation of your article is finished.', 'polylang-supertext')) . '",
+          confirmUnsavedArticle : "' . esc_js(__('The article was not saved. If you proceed with the translation, the unsaved changes will be lost.', 'polylang-supertext')) . '",
+          alertUntranslatable : "' . esc_js(__('The article cannot be translated because there is an unfinished translation task. Please use the original article to order a translation.', 'polylang-supertext')) . '",
+          offerConfirm_Price : "' . esc_js(__('You are ordering a translation with the deadline {deadline} and price {price}.', 'polylang-supertext')) . '",
+          offerConfirm_Binding : "' . esc_js(__('This order for a translation is binding.', 'polylang-supertext')) . '",
+          offerConfirm_EmailInfo : "' . esc_js(__('You will receive an email as soon as the translation of your article is complete.', 'polylang-supertext')) . '",
           offerConfirm_Confirm : "' . esc_js(__('Please confirm your order.', 'polylang-supertext')) . '"
         };
       </script>
@@ -241,6 +186,45 @@ class Translation
       $helper->addMetabox(Log::META_LOG, __('Supertext Plugin Log', 'polylang-supertext'), 'side', 'low');
       $helper->addHtml('info', Log::META_LOG, $html);
     }
+  }
+
+  /**
+   * Sets the translation status column cell
+   * @param $column
+   * @param $postId
+   */
+  public function displayTranslationStatusColumn($column, $postId) {
+    if ($column != self::TRANSLATION_STATUS_COLUMN){
+      return;
+    }
+
+    if(get_post_meta($postId, Translation::IN_TRANSLATION_FLAG, true) == 1){
+      echo '<span class="dashicons dashicons-clock"></span>';
+    }
+  }
+
+  /**
+   * Adds a translation status column.
+   * @param $columns
+   * @return array
+   */
+  public function addTranslationStatusColumn($columns)
+  {
+    $newColumns = array();
+
+    foreach ($columns as $key => $column) {
+      if($key == 'comments'){
+        $newColumns[self::TRANSLATION_STATUS_COLUMN] =  '<span class="dashicons dashicons-translation"></span>';
+      }
+
+      $newColumns[$key] = $column;
+    }
+
+    if(!isset($newColumns[self::TRANSLATION_STATUS_COLUMN])){
+      $newColumns[self::TRANSLATION_STATUS_COLUMN] =  '<span class="dashicons dashicons-translation"></span>';
+    }
+
+    return $newColumns;
   }
 
   /**

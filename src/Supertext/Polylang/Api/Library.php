@@ -129,7 +129,15 @@ class Library
 
     // Gallery
     if ($pattern['post_image'] == true) {
-      $attachments = get_children(array('post_parent' => $postId, 'post_type' => 'attachment', 'orderby' => 'menu_order ASC, ID', 'order' => 'DESC'));
+      $attachments = get_children(
+        array(
+          'post_parent' => $postId,
+          'post_type' => 'attachment',
+          'post_mime_type' => 'image',
+          'orderby' => 'menu_order ASC, ID',
+          'order' => 'DESC')
+      );
+
       foreach ($attachments as $gallery_post) {
         $array_name = 'gallery_image_' . $gallery_post->ID;
         $result[$array_name]['post_title'] = $gallery_post->post_title;
@@ -137,6 +145,11 @@ class Library
         $result[$array_name]['post_excerpt'] = $gallery_post->post_excerpt;
         $result[$array_name]['image_alt'] = get_post_meta($gallery_post->ID, '_wp_attachment_image_alt', true);
       }
+    }
+
+    // Get the selected custom fields
+    foreach ($this->getCustomFieldsForTranslation($postId, array_keys($pattern)) as $meta_key => $value) {
+      $result['meta'][$meta_key] = $value;
     }
 
     // Let developers add their own fields
@@ -151,15 +164,15 @@ class Library
    */
   public function getCustomFieldDefinitions($postId)
   {
-    $postCustomFields = get_post_custom($postId);
+    $postCustomFields = get_post_meta($postId);
     $options = $this->getSettingOption();
     $savedCustomFieldsDefinitions = isset($options[Constant::SETTING_CUSTOM_FIELDS]) ? $options[Constant::SETTING_CUSTOM_FIELDS] : array();
 
     $selectableCustomFieldDefinitions = array();
 
-    foreach ($postCustomFields as $key => $value) {
+    foreach ($postCustomFields as $meta_key => $value) {
       foreach ($savedCustomFieldsDefinitions as $savedCustomFieldDefinition) {
-        if (preg_match('/^' . $savedCustomFieldDefinition['meta_key'] . '$/', $key)) {
+        if (preg_match('/^' . $savedCustomFieldDefinition['meta_key_regex'] . '$/', $meta_key)) {
           $selectableCustomFieldDefinitions[] = $savedCustomFieldDefinition;
         }
       }
@@ -175,23 +188,20 @@ class Library
    */
   public function getCustomFieldsForTranslation($postId, $selectedCustomFieldIds = array())
   {
-    $postCustomFields = get_post_custom($postId);
+    $postCustomFields = get_post_meta($postId);
     $options = $this->getSettingOption();
     $savedCustomFieldsDefinitions = isset($options[Constant::SETTING_CUSTOM_FIELDS]) ? $options[Constant::SETTING_CUSTOM_FIELDS] : array();
 
     $customFields = array();
 
-    foreach ($postCustomFields as $customFieldKey => $customFieldValue) {
+    foreach ($postCustomFields as $meta_key => $value) {
       foreach ($savedCustomFieldsDefinitions as $savedCustomFieldDefinition) {
         if (!in_array($savedCustomFieldDefinition['id'], $selectedCustomFieldIds)) {
           continue;
         }
 
-        if (preg_match('/^' . $savedCustomFieldDefinition['meta_key'] . '$/', $customFieldKey)) {
-          $customFields[] = array(
-            'key' => $customFieldKey,
-            'value' => $customFieldValue
-          );
+        if (preg_match('/^' . $savedCustomFieldDefinition['meta_key_regex'] . '$/', $meta_key)) {
+          $customFields[$meta_key] = is_array($value) ? $value[0] : $value;
         }
       }
     }
@@ -230,7 +240,7 @@ class Library
 
     $tagName = $matches[2];
     $attributes = shortcode_parse_atts($matches[3]);
-    $savedShortcode = $savedShortcodes[$tagName];
+    $savedShortcode = isset($savedShortcodes[$tagName]) ? $savedShortcodes[$tagName] : array('attributes' => array());
     $translatableShortcodeAttributes = $savedShortcode['attributes'];
 
     $attributeNodes = '';
@@ -266,12 +276,31 @@ class Library
     $options = $this->getSettingOption();
     $savedShortcodes = isset($options[Constant::SETTING_SHORTCODES]) ? $options[Constant::SETTING_SHORTCODES] : array();
 
-    $doc = new \DOMDocument();
-    $doc->loadHTML($content);
+    $doc = $this->createHtmlDocument($content);
 
     $childNodes = $doc->getElementsByTagName('body')->item(0)->childNodes;
 
     return $this->replaceShortcodeNodesRecursive($doc, $childNodes, $savedShortcodes);
+  }
+
+  /**
+   * @param $content
+   * @return \DOMDocument
+   */
+  private function createHtmlDocument($content)
+  {
+    $html = '<?xml version="1.0" encoding="utf-8">
+    <html>
+        <head>
+        <meta charset="utf-8" />
+        </head>
+        <body>'.$content.'</body>
+    </html>
+    ';
+
+    $doc = new \DOMDocument();
+    $doc->loadHTML($html);
+    return $doc;
   }
 
   /**

@@ -4,6 +4,7 @@ namespace Supertext\Polylang\Backend;
 
 use Supertext\Polylang\Api\Multilang;
 use Supertext\Polylang\Core;
+use Supertext\Polylang\Helper\Constant;
 
 /**
  * Called in the backend/offer.php view
@@ -20,6 +21,10 @@ class OfferBox
    * @var \WP_Post the post object
    */
   protected $post = null;
+  /**
+   * @var bool determines if the post is already translated in target
+   */
+  protected $hasExistingTranslation = false;
   /**
    * @var string the source language
    */
@@ -38,6 +43,11 @@ class OfferBox
     $this->post = get_post($this->postId);
     $this->sourceLang = Multilang::getPostLanguage($this->post->ID);
     $this->targetLang = $_GET['targetLang'];
+    $this->hasExistingTranslation = intval(Multilang::getPostInLanguage($this->postId, $this->targetLang)) > 0;
+
+    wp_enqueue_style(Constant::POST_STYLE_HANDLE);
+    wp_enqueue_script(Constant::GLOBAL_SCRIPT_HANDLE);
+    wp_enqueue_script(Constant::TRANSLATION_SCRIPT_HANDLE);
   }
 
   /**
@@ -51,79 +61,86 @@ class OfferBox
     // Inform the user over a draft that might not be finished
     if ($this->post->post_status == 'draft') {
       $output .= '
-        <div class="ui-widget" id="warning_not_review_state">
-          <div class="ui-state-highlight ui-corner-all" style="margin-top: 20px; padding: 0 .7em;">
-            <p>
-              ' . __('The articles state is not <b>review</b>.<br>Are you sure you want to order a translation for this article?', 'polylang-supertext') . '
-            </p>
-          </div>
+        <div id="warning_draft_state" class="notice notice-warning">
+          <p>
+            ' . __('The articles status is <b>draft</b>.<br>Are you sure you want to order a translation for this article?', 'polylang-supertext') . '
+          </p>
         </div>
       ';
     }
 
-    // Create the success url that will create a new post to be translated
-    // This will trigger polylang to setup to post, "translation-service=1" triggers creation of article automatically
-    $successUrl = 'post-new.php' .
-      '?post_type=' . $this->post->post_type .
-      '&source=' . $this->sourceLang .
-      '&new_lang=' . $this->targetLang .
-      '&from_post=' . $this->postId .
-      '&translation-service=1';
+    // If there is an existing translation
+    if ($this->hasExistingTranslation) {
+      $output .= '
+        <div id="warning_already_translated" class="notice notice-warning">
+          <p>
+            ' . __('There is already a translation for this post. The quote below may be higher than the final price if only parts of the content need to be translated again.', 'polylang-supertext') . '
+          </p>
+        </div>
+      ';
+    }
 
     // Print the actual form
     echo '
-      <link rel="stylesheet" href="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/styles/post.css?v=' . SUPERTEXT_PLUGIN_REVISION . '" />
-      <script type="text/javascript" src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/scripts/global-library.js?v=' . SUPERTEXT_PLUGIN_REVISION . '"></script>
-      <script type="text/javascript" src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/scripts/translation-library.js?v=' . SUPERTEXT_PLUGIN_REVISION . '" /></script>
       <script type="text/javascript">
         jQuery(function() {
-          Supertext.Polylang.translatedPostId = ' . intval($this->postId) . ';
           Supertext.Polylang.addOfferEvents();
         });
       </script>
-
       <div id="div_tb_wrap_translation" class="div_tb_wrap_translation">
-        ' . $output . '
-        <br>
-        <div style="clear:both;">
-          <div id="div_waiting_while_loading" style="display:none;">
+        <div id="div_translation_order_head">
+          ' . $output . '
+        </div>
+        <div id="div_waiting_while_loading" style="display:none;">
+          <p>
             <i>
-              ' . __('The order is being sent. One moment, please.', 'polylang-supertext') . '<br>
-              ' . __('As soon as the order is placed, you will be automatically redirected.', 'polylang-supertext') . '
+              ' . __('One moment please. The translation order is being sent to Supertext.', 'polylang-supertext') . '<br>
+              ' . __('Please do not close this window.', 'polylang-supertext') . '
             </i>
             <img src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/loader.gif" title="' . __('Loading', 'polylang-supertext') . '">
-          </div>
-          <form name="frm_Translation_Options" id="frm_Translation_Options" method="post" data-post-id="' . $this->postId . '">
-            <input type="hidden" id="successUrlMakeOrder" value="' . $successUrl . '" />
-            <h3>' . __('Translation', 'polylang-supertext') . '</h3>
+          </p>
+        </div>
+        <div id="div_translation_order_content">
+          <form
+            name="frm_Translation_Options"
+            id="frm_Translation_Options"
+            method="post"
+           >
+            <h3>' . sprintf(__('Translation of post %s', 'polylang-supertext'), $this->post->post_title) . '</h3>
             ' . sprintf(
-                  __('The article will be translated from <b>%s</b> to <b>%s</b>.', 'polylang-supertext'),
+                  __('The article will be translated from <b>%s</b> into <b>%s</b>.', 'polylang-supertext'),
                   $this->getLanguageName($this->sourceLang),
                   $this->getLanguageName($this->targetLang)
                 ) . '
+            <input type="hidden" name="post_id" value="' . intval($this->postId) . '">
             <input type="hidden" name="source_lang" id="source_lang" value="' . $this->sourceLang . '">
             <input type="hidden" name="target_lang" id="target_lang" value="' . $this->targetLang . '">
-            <br><br>
-            <h3>' . __('Contents to be translated', 'polylang-supertext') . '</h3>
-            ' . $this->getCheckboxes() . '
-            <br>
-            <h3>' . __('Quality and deadline', 'polylang-supertext') . '</h3>
-            ' . __('The following settings are available for the selected components of your article:', 'polylang-supertext') . '
-            <br><br>
+
+            <h3>' . __('Content to be translated', 'polylang-supertext') . '</h3>
+            ' . $this->getCheckboxes(self::getTranslatableFields($this->postId)) . '
+            <h3>' . __('Custom fields to be translated', 'polylang-supertext') . '</h3>
+            <p>'.__('Translatable custom fields can be defined under Settings -> Supertext -> Custom Fields.', 'polylang-supertext').'</p>
+            ' . $this->getCheckboxes(self::getTranslatableCustomFields($this->postId)) . '
+
+            <h3>' . __('Service and deadline', 'polylang-supertext') . '</h3>
+            <p>' . __('Select the translation service and deadline:', 'polylang-supertext') . '</p>
+
             <div class="div_translation_price_loading" id="div_translation_price_loading" style="height:200px;">
-              ' . __('Prices are calculated, one moment please.', 'polylang-supertext') . '
+              ' . __('The price is being calculated, one moment please.', 'polylang-supertext') . '
               <img src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/loader.gif" title="' . __('Loading', 'polylang-supertext') . '">
             </div>
             <div id="div_translation_price" style="display:none;"></div>
-            <br>
-            <h3>' . __('Your comment to Supertext', 'polylang-supertext') . '</h3>
-            <textarea name="txtComment" id="txtComment" style="width:100%;height:100px;"></textarea>
 
-            <br><br>
-            <span style="float:right;clear:both;">
-              <input type="submit" name="btn_order" id="btn_order" value="' . __('Order translation', 'polylang-supertext') . '" class="button">
-            </span>
+            <h3>' . __('Your comment to Supertext', 'polylang-supertext') . '</h3>
+            <p><textarea name="txtComment" id="txtComment"></textarea></p>
+
+            <div class="div_translation_order_buttons">
+              <input type="submit" name="btn_order" id="btn_order" value="' . __('Order translation', 'polylang-supertext') . '" class="button" />
+            </div>
           </form>
+        </div>
+        <div id="div_close_translation_order_window" class="div_translation_order_buttons" style="display:none">
+              <input type="button" id="btn_close_translation_order_window" class="button" value="'. __('Close window', 'polylang-supertext') .'" />
         </div>
       </div>
     ';
@@ -183,15 +200,41 @@ class OfferBox
   }
 
   /**
+   * @param int $postId the post to be translated
+   * @return array list of translatable fields
+   */
+  public static function getTranslatableCustomFields($postId)
+  {
+    $result = array();
+
+    $fields = Core::getInstance()->getLibrary()->getCustomFieldDefinitions($postId);
+
+    // Create the field list to generate checkboxes
+    foreach ($fields as $field) {
+      $result[] = array(
+        'title' => $field['label'],
+        'name' => 'to_' . $field['id'],
+        'default' => true
+      );
+    }
+
+    // Let developers add their own translatable custom fields
+    $result = apply_filters('translation_custom_fields_for_post', $result, $postId);
+
+    return $result;
+  }
+
+  /**
    * Generate checkboxes for the user to select translation fields
+   * @param array $fields that are translateable
    * @return string html code for checkboxes
    */
-  protected function getCheckboxes()
+  protected function getCheckboxes($fields)
   {
     $return = '';
     // Go trough all possible fields
     $i = 0;
-    foreach (self::getTranslatableFields($this->postId) as $tick) {
+    foreach ($fields as $tick) {
       $i++;
       $checkName = $tick['name'];
 
@@ -226,6 +269,11 @@ class OfferBox
       }
     }
 
+    // If nothing, give a message
+    if (!is_array($fields) || count($fields) == 0) {
+      $return .= '<tr><td>' . __('There is no content to be translated.', 'polylang-supertext') . '</td></tr>';
+    }
+
     // Return the table with checkboxes
     return '
       <table border="0" cellpadding="2" cellspace="0">
@@ -244,14 +292,15 @@ class OfferBox
       return __('The Supertext plugin hasn\'t been configured correctly.', 'polylang-supertext');
     }
 
+    $title = __('Your Supertext translation order', 'polylang-supertext');
+
     // Return info about supertext
     return '
-      <div>
-        <span style="float:left;"><img src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/icon-st.png" alt="Supertext" title="Supertext">&nbsp;</span>
-        <span style="float:left;"><h2>Supertext: ' . __('Order article translation', 'polylang-supertext') . '</h2></span>
-      </div>
-      <br><br><br>
-    ';
+    <div id="div_translation_title">
+        <span><img src="' . SUPERTEXT_POLYLANG_RESOURCE_URL . '/images/logo_supertext.png" width="48" height="48" alt="Supertext" title="Supertext" /></span>
+        <span><h2>'.$title.'</h2></span>
+        <div class="clear"></div>
+    </div>';
   }
 
 }

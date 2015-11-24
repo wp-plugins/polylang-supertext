@@ -24,10 +24,7 @@ Supertext.Polylang = {
 	 * The very own ajax url (well, yes. legacy.)
 	 */
 	ajaxUrl : '/wp-content/plugins/polylang-supertext/resources/scripts/api/ajax.php',
-	/**
-	 * Set by the offerbox window
-	 */
-	translatedPostId : 0,
+
 	/**
 	 * This can be set to true in order to see a confirmation before purchasing
 	 */
@@ -43,6 +40,7 @@ Supertext.Polylang = {
 		  <td colspan="2"><a href="{translationLink}">&nbsp;' + Supertext.i18n.offerTranslation + '</a></td>\
 		</tr>\
   ',
+	errorTemplate: '<h2 class="error-title">{title}</h2><p class="error-message">{message}<br/>({details})</p>',
 
 	/**
 	 * Loading the module on post or page
@@ -51,12 +49,6 @@ Supertext.Polylang = {
 	{
 		if (jQuery('#post-translations').length == 1 && Supertext.Polylang.isWorking()) {
 			Supertext.Polylang.injectOfferLinks();
-		}
-
-		// Auto save a newly done translation by "pressing save"
-		var translationParam = location.search.split('translation-service=')[1];
-		if (typeof(translationParam) != 'undefined' && translationParam == 1) {
-			Supertext.Polylang.autoSavePost();
 		}
 
 		// Lock the post if it is in translation
@@ -80,10 +72,7 @@ Supertext.Polylang = {
 
 		// Create order on form submit
 		jQuery('#frm_Translation_Options').submit(function() {
-			var form = jQuery(this);
-			var postId = form.data('post-id');
-			var successUrl = jQuery('#successUrlMakeOrder').val();
-			return Supertext.Polylang.createOrder(postId, successUrl);
+			return Supertext.Polylang.createOrder();
 		});
 	},
 
@@ -97,25 +86,6 @@ Supertext.Polylang = {
 	},
 
 	/**
-	 * Automatically saves a post on load. Used for the newly created translated page
-	 */
-	autoSavePost : function()
-	{
-		// Tell the user something happens
-		jQuery('body').css('cursor', 'progress');
-		// Show an info to the user
-		var element = jQuery('#poststuff');
-		element.css('display', 'none');
-		element.after('<div class="updated"><p>' + Supertext.i18n.translationCreation + '</p></div>');
-
-		// After a second, auto save to permanently save the post to be translated
-		setTimeout(function() {
-			jQuery('#save-action input[type=submit]').trigger('click');
-			jQuery('body').css('cursor', 'default');
-		}, 1000);
-	},
-
-	/**
 	 * Injects an offer link for every not yet made translation
 	 */
 	injectOfferLinks : function()
@@ -125,8 +95,8 @@ Supertext.Polylang = {
 			var langInput = translationCell.find('input').first();
 			var languageRow = translationCell.parent();
 
-			// Provide link of not yet translated
-			if (langInput.val() == 0) {
+			// Provide link in any case now
+			if (true/*langInput.val() == 0*/) {
 				var template = Supertext.Polylang.rowTemplate;
 				var link = Supertext.Polylang.getTranslationLink(languageRow);
 				template = template.replace('{translationLink}', link);
@@ -159,7 +129,7 @@ Supertext.Polylang = {
 		// Set all default fields to readonly
 		jQuery('#post input, #post select, #post textarea').each(function() {
 			// If the value contains the in translation text, lock fields
-			if (jQuery(this).val() == Supertext.i18n.inTranslationText) {
+			if (jQuery(this).val().indexOf(Supertext.i18n.inTranslationText) > -1) {
 				jQuery(this).attr('readonly', 'readonly');
 				jQuery(this).addClass('input-disabled');
 				post_is_in_translation = true;
@@ -169,13 +139,10 @@ Supertext.Polylang = {
 		// Kings discipline: disable the editor
 		if (Supertext.Polylang.translationEnabledOnElement(jQuery('#content'))) {
 			// Hide the editor
-			jQuery('#post-status-info').hide();
-			tinyMCE.execCommand("mceRemoveControl", true, 'content');
-			jQuery('#post-status-info').hide();
 			jQuery('#wp-content-editor-container').addClass('input-disabled')
 			jQuery('#content').hide();
-			// Alos, hide editor toggle
-			jQuery('#content-html, #content-tmce').hide();
+			// Also, hide editor toggle
+			jQuery('#post-status-info, #content-html, #content-tmce, .mce-tinymce').hide();
 			// Print informational text
 			jQuery('#wp-content-editor-container').html(
 				'<div style="margin:10px;">' + Supertext.i18n.inTranslationText + '</div>' +
@@ -192,7 +159,7 @@ Supertext.Polylang = {
 	translationEnabledOnElement : function(element)
 	{
 		if (element.length > 0) {
-			if (element.val().trim() == Supertext.i18n.inTranslationText || element.val().trim() == '<p>' + Supertext.i18n.inTranslationText + '</p>') {
+			if (element.val().indexOf(Supertext.i18n.inTranslationText) > -1) {
 				Supertext.Polylang.inTranslation = true;
 				return true;
 			}
@@ -208,7 +175,7 @@ Supertext.Polylang = {
 		// var arr_ele_name, att_id, post_type;
 		jQuery("#media-items input, #media-items select, #media-items textarea").each(function() {
 			// if the value is the translation text, lock field
-			if (jQuery(this).val() == Supertext.i18n.inTranslationText) {
+			if (jQuery(this).val().indexOf(Supertext.i18n.inTranslationText) > -1) {
 				jQuery(this).attr("readonly", "readonly");
 				jQuery(this).addClass("input-disabled");
 				post_is_in_translation = true;
@@ -254,13 +221,13 @@ Supertext.Polylang = {
 	{
 		Supertext.Polylang.handleElementVisibility(true, true);
 		Supertext.Polylang.requestCounter++;
-		var postId = Supertext.Polylang.translatedPostId;
 		var postData = jQuery('#frm_Translation_Options').serialize()
-			+ '&post_id=' + postId
 			+ '&requestCounter=' + Supertext.Polylang.requestCounter;
+
 		jQuery.post(
 			Supertext.i18n.resourceUrl + Supertext.Polylang.ajaxUrl + '?action=getOffer',
-			postData,
+			postData
+		).done(
 			function(data) {
 				// handle only newest request
 				if (data.body.optional.requestCounter == Supertext.Polylang.requestCounter) {
@@ -274,21 +241,25 @@ Supertext.Polylang = {
 							Supertext.Polylang.handleElementVisibility(false, false);
 							break;
 						default: // error
-							jQuery('#div_translation_price').html(Supertext.i18n.generalError);
+							jQuery('#div_translation_price').html(Supertext.i18n.generalError).addClass("error-message");
+							Supertext.Polylang.handleElementVisibility(false, false);
 							break;
 					}
 				}
+			}
+		).fail(
+			function() {
+				jQuery('#div_translation_price').html(Supertext.i18n.generalError).addClass("error-message");
+				Supertext.Polylang.handleElementVisibility(false, false);
 			}
 		);
 	},
 
 	/**
 	 * Create an actual translation order for supertext
-	 * @param postId the post id (original)
-	 * @param successUrl the success url to post to
 	 * @returns bool false (always, to prevent native submit)
 	 */
-	createOrder : function (postId, successUrl)
+	createOrder : function ()
 	{
   	// wird nur einmal ausgelöst
 		if (!Supertext.Polylang.createOrderRunning) {
@@ -308,54 +279,61 @@ Supertext.Polylang = {
 			// If the user confirmed, actually create the order
 			if (hasConfirmed) {
 				jQuery('#frm_Translation_Options').hide();
-				// Hide review state, if available
-				if (!jQuery('#warning_not_review_state').length == 0) {
-					jQuery('#warning_not_review_state').hide();
-				}
+				jQuery('#warning_draft_state').hide();
+				jQuery('#warning_already_translated').hide();
+
 				jQuery('#div_waiting_while_loading').show();
 
 				var offerForm = jQuery('#frm_Translation_Options');
-				var postData = offerForm.serialize() + '&post_id=' + postId;
+				var postData = offerForm.serialize();
 
 				// Post to API Endpoint and create order
 				jQuery.post(
 					Supertext.i18n.resourceUrl + Supertext.Polylang.ajaxUrl + '?action=createOrder',
-					postData,
+					postData
+				).done(
 					function(data) {
 						jQuery('#div_waiting_while_loading').hide();
 						switch (data.head.status) {
 							case 'success':
-								// Show info to user
-								jQuery('#div_tb_wrap_translation').append(data.body.html);
-								Supertext.Polylang.createOrderRunning = false;
-
-								// do the rest in a few seconds
-								setTimeout(function() {
-									// Copy form to parent
-									parent.jQuery('body').append(offerForm.clone());
-									offerForm = parent.jQuery('#frm_Translation_Options');
-
-									// POST to success page that will create the empty post and connect it
-									offerForm.attr('action', successUrl);
-									// Remove submit validation and send
-									offerForm.attr('onsubmit', '');
-									offerForm.submit();
-
-									// Also, close thickbox (but the form response will anyway)
-									self.parent.tb_remove();
-								}, 3000);
-
+								jQuery('#div_translation_order_content').html(data.body.html);
 								break;
 							default: // error
-								jQuery('#div_tb_wrap_translation').html(
-									'<h2>' + Supertext.i18n.generalError + '</h2>' +
-									Supertext.i18n.translationOrderError
+								jQuery('#div_translation_order_head').hide();
+								jQuery('#div_translation_order_content').html(
+									Supertext.Polylang.errorTemplate
+										.replace('{title}', Supertext.i18n.generalError)
+										.replace('{message}', Supertext.i18n.translationOrderError)
+										.replace('{details}', data.body.reason)
 								);
 								break;
 						}
-					},
-					'json'
+
+						//set window close button, top right 'x'
+						jQuery(self.parent.document).find('#TB_closeWindowButton').click(function(){
+							self.parent.location.reload();
+						});
+
+						jQuery('#btn_close_translation_order_window').click(function(){
+							self.parent.location.reload();
+						});
+						jQuery('#div_close_translation_order_window').show();
+
+						Supertext.Polylang.createOrderRunning = false;
+					}
+				).fail(
+					function(jqXHR, textStatus, errorThrown){
+						jQuery('#div_waiting_while_loading').hide();
+						jQuery('#div_translation_order_head').hide();
+						jQuery('#div_translation_order_content').html(
+							Supertext.Polylang.errorTemplate
+								.replace('{title}', Supertext.i18n.generalError)
+								.replace('{message}', Supertext.i18n.translationOrderError)
+								.replace('{details}', errorThrown + ": " + jqXHR.responseText)
+						);
+					}
 				);
+
 			} else {
 				Supertext.Polylang.createOrderRunning = false;
 			}
